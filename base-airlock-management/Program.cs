@@ -43,16 +43,15 @@ namespace IngameScript
         //
         // to learn more about ingame scripts.
 
-        // block lists
-        // List<IMyAirtightSlideDoor> habAirlockDoors = new List<IMyAirtightSlideDoor>();
-        // List<IMyAirtightHangarDoor> hangarDoors = new List<IMyAirtightHangarDoor>();
-        // List<IMyAirVent> vents = new List<IMyAirVent>();
+        public static IMyBlockGroup habAirlock;
+        public static List<IMyAirVent> habVents = new List<IMyAirVent>();
+        public static List<IMyDoor> habDoors = new List<IMyDoor>();
+        public static List<IMySensorBlock> habSensors = new List<IMySensorBlock>();
+        public static List<MyDetectedEntityInfo> airlockEntities = new List<MyDetectedEntityInfo>();
+        public static IMyDoor insideDoor;
+        public static IMyDoor outsideDoor;
+        public static IMySensorBlock habSensor;
 
-        public IMyBlockGroup habAirlock;
-        List<IMyAirVent> habVents = new List<IMyAirVent>();
-        List<IMyDoor> habDoors = new List<IMyDoor>();
-        List<IMySensorBlock> habSensors = new List<IMySensorBlock>();
-        List<MyDetectedEntityInfo> airlockEntities = new List<MyDetectedEntityInfo>();
 
 
         public int airlockStage = 0;
@@ -70,7 +69,28 @@ namespace IngameScript
             // 
             // It's recommended to set Runtime.UpdateFrequency 
             // here, which will allow your script to run itself without a 
-            // timer block.
+            // timer block.a
+
+            // fetch blocks - recompile to account for new blocks
+            habAirlock = GridTerminalSystem.GetBlockGroupWithName("Hab Airlock");
+
+            // hab airlock vents, doors and sensors
+            if (habAirlock != null)
+            {
+                habAirlock.GetBlocksOfType(habVents);
+
+                habAirlock.GetBlocksOfType(habDoors);
+
+                habAirlock.GetBlocksOfType(habSensors);
+
+                insideDoor = habDoors.First(d => d.CustomName.Contains("Inside"));
+                outsideDoor = habDoors.First(d => d.CustomName.Contains("Outside"));
+                habSensor = habSensors.First(s => s.CustomName.Contains("Airlock"));
+            }
+            else
+            {
+                Echo("null habitat airlock block group");
+            }
 
             // update every 100 ticks
             Runtime.UpdateFrequency = UpdateFrequency.Update100;
@@ -98,32 +118,189 @@ namespace IngameScript
             // The method itself is required, but the arguments above
             // can be removed if not needed.
 
-            // get hab airlock blocks
-            habAirlock = GridTerminalSystem.GetBlockGroupWithName("Hab Airlock");
-            
-            // hab airlock vents
-            habAirlock.GetBlocksOfType(habVents);
-            
-            // hab airlock doors - we know there are only ever 2 at this point
-            habAirlock.GetBlocksOfType(habDoors);
-            var insideDoor = habDoors.First(d => d.CustomName.Contains("Inside"));
-            var outsideDoor = habDoors.First(d => d.CustomName.Contains("Outside"));
-
-            // hab airlock sensor
-            habAirlock.GetBlocksOfType(habSensors);
-
-            var habSensor = habSensors.First(s => s.CustomName.Contains("Airlock"));
-
             // get oxygen level in airlock - we only need to see one vent oxy lvl to know the room is full.
             airlockOxyLvl = String.Format("{0:N2}", habVents[0].GetOxygenLevel());
 
             // get airlock pressurization status
             airlockCanPressurize = habVents[0].CanPressurize;
 
-            // handle button presses
+            // get detected players in airlock
+            habSensor.DetectedEntities(airlockEntities);
+
             if (argument != "")
             {
-                switch (argument)
+                HandleUserInput(argument);
+            }
+            else
+            {
+                HandleAirlockStages();
+            }
+        }
+        /// <summary>
+        /// Handles airlock stages of operation
+        /// </summary>
+        public void HandleAirlockStages()
+        {
+            switch (airlockStage)
+            {
+                case 2:
+                    HandleAirlockStageTwo();
+                    break;
+
+                case 3:
+                    HandleAirlockStageThree();
+                    break;
+
+                // if airlock is not in use - this needs to be moved to a method of its own
+                default:
+                    HandleAirlockReset();
+                    break;
+            }
+        }
+
+        public void HandleAirlockStageTwo()
+        {
+
+            if (GoingIn())
+            {
+                Echo("Airlock ready to cycle");
+            }
+            else
+            {
+                if (airlockOxyLvl == "1.00")
+                {
+                    Echo("Airlock pressurized. Opening inner door.");
+
+                    // attempt to open door
+                    if (insideDoor != null)
+                    {
+                        insideDoor.OpenDoor();
+                    }
+                    else
+                    {
+                        // TODO: display a noisy error on LCD's
+                        Echo("Fault at inner door. Perform maintenance check.");
+
+                        // reset stage
+                        airlockStage = 0;
+                    }
+                }
+                else
+                {
+                    // TODO: display this on LCD's
+                    Echo($"Airlock Pressurizing. Please Wait.");
+                }
+            }
+        }
+
+        private void HandleAirlockStageThree()
+        {
+            if (GoingIn())
+            {
+                if (airlockOxyLvl == "1.00")
+                {
+                    Echo("Airlock pressurized. Openining inner door.");
+
+                    // attempt to open door
+                    if (insideDoor != null)
+                    {
+                        insideDoor.OpenDoor();
+
+                        airlockStage = 0;
+                        habVents[0].CustomData = "";
+                    }
+                    else
+                    {
+                        // TODO: display a noisy error on LCD's
+                        Echo("Fault at inner door. Perform maintenance check.");
+
+                        // reset stage
+                        airlockStage = 0;
+                        habVents[0].CustomData = "";
+                    }
+                }
+                else
+                {
+                    // TODO: display this on LCD's
+                    Echo($"Airlock pressurizing. Please Wait.");
+                }
+            }
+            else
+            {
+                if (airlockOxyLvl == "0.00")
+                {
+                    Echo("Airlock depressurized. Opening outter door.");
+
+                    // attempt to open door
+                    if (outsideDoor != null)
+                    {
+                        outsideDoor.OpenDoor();
+                        airlockStage = 0;
+                    }
+                    else
+                    {
+                        // TODO: display a noisy error on LCD's
+                        Echo("Fault at outter door.");
+
+                        // reset stage
+                        airlockStage = 0;
+                        return;
+                    }
+                }
+                else
+                {
+                    // TODO: display this on LCD's
+                    Echo($"Airlock depressurizing. Please Wait.");
+                }
+            }
+        }
+
+        private void HandleAirlockReset()
+        {
+            if (airlockEntities.Count < 1)
+            {
+                foreach (var door in habDoors)
+                {
+                    // attempt to close doors
+                    if (door != null)
+                    {
+                        door.CloseDoor();
+                    }
+                    else
+                    {
+                        // TODO: display a noisy error on LCD's
+                        Echo($"Null door block at airlock doors index { habDoors.IndexOf(door) }. Perform maintenance check.");
+
+                        return;
+                    }
+                }
+                // depressurize room
+                foreach (var vent in habVents)
+                {
+                    if (vent != null)
+                    {
+                        vent.Depressurize = true;
+                    }
+                    else
+                    {
+                        // TODO: display a noisy error on LCD's
+                        Echo($"Null vent block at airlock vents index { habVents.IndexOf(vent) }. Perform maintenance check.");
+
+                        return;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles user input string passed in to main
+        /// </summary>
+        /// <param name="arg">argument passed in to main via user input</param>
+        public void HandleUserInput(string arg)
+        {
+            if (arg != null)
+            {
+                switch (arg)
                 {
                     // user going in from hangar
                     case "Hab In":
@@ -135,7 +312,7 @@ namespace IngameScript
                             airlockStage++;
 
                             if (airlockOxyLvl == "0.00")
-                            {   
+                            {
                                 // attempt to open door
                                 if (outsideDoor != null)
                                 {
@@ -153,8 +330,6 @@ namespace IngameScript
                                     // reset stage
                                     airlockStage = 0;
                                     habVents[0].CustomData = "";
-
-                                    return;
                                 }
                             }
                             else
@@ -212,8 +387,8 @@ namespace IngameScript
 
                     // user cycles airlock to indicate everyone is inside and ready
                     case "Airlock Ready":
-                        
-                        if (goingIn())
+
+                        if (GoingIn())
                         {
                             if (outsideDoor != null)
                             {
@@ -247,7 +422,6 @@ namespace IngameScript
                             {
                                 Echo($"Fault at outter door. Perform maintenance check.");
                                 airlockStage = 0;
-
                                 break;
                             }
                         }
@@ -293,169 +467,19 @@ namespace IngameScript
                         break;
                 }
             }
-            // this runs on auto update
-            else 
-            {
-                switch(airlockStage)
-                {
-                    // handle stage 2 - this needs to be moved to a method of its own
-                    // TODO: need to account for user going in from hangar, use a bool check (ie: goingIn, goingOut).
-                    case 2:
-
-                        if (goingIn())
-                        {
-                            Echo("Airlock ready to cycle");
-                        }
-                        else
-                        {
-                            if (airlockOxyLvl == "1.00")
-                            {
-                                Echo("Airlock pressurized. Opening inner door.");
-
-                                // attempt to open door
-                                if (insideDoor != null)
-                                {
-                                    insideDoor.OpenDoor();
-                                }
-                                else
-                                {
-                                    // TODO: display a noisy error on LCD's
-                                    Echo("Fault at inner door. Perform maintenance check.");
-
-                                    // reset stage
-                                    airlockStage = 0;
-                                    return;
-                                }
-                            }
-                            else
-                            {
-                                // TODO: display this on LCD's
-                                Echo($"Airlock Pressurizing. Please Wait.");
-                            }
-                        }
-
-                        break;
-
-                    // handle stage 3 - this needs to be moved to a method of its own
-                    // TODO: need to account for user going in from hangar, use a bool check (ie: goingIn, goingOut).
-                    case 3:
-
-                        if (goingIn())
-                        {
-                            if (airlockOxyLvl == "1.00")
-                            {
-                                Echo("Airlock pressurized. Openining inner door.");
-
-                                // attempt to open door
-                                if (insideDoor != null)
-                                {
-                                    insideDoor.OpenDoor();
-
-                                    airlockStage = 0;
-                                    habVents[0].CustomData = "";
-                                }
-                                else
-                                {
-                                    // TODO: display a noisy error on LCD's
-                                    Echo("Fault at inner door. Perform maintenance check.");
-
-                                    // reset stage
-                                    airlockStage = 0;
-                                    habVents[0].CustomData = "";
-
-                                    return;
-                                }
-                            }
-                            else
-                            {
-                                // TODO: display this on LCD's
-                                Echo($"Airlock pressurizing. Please Wait.");
-                            }
-                        }
-                        else
-                        {   
-                            if (airlockOxyLvl == "0.00")
-                            {
-                                Echo("Airlock depressurized. Opening outter door.");
-
-                                // attempt to open door
-                                if (outsideDoor != null)
-                                {
-                                    outsideDoor.OpenDoor();
-                                    airlockStage = 0;
-                                }
-                                else
-                                {
-                                    // TODO: display a noisy error on LCD's
-                                    Echo("Fault at outter door.");
-
-                                    // reset stage
-                                    airlockStage = 0;
-                                    return;
-                                }
-                            }
-                            else
-                            {
-                                // TODO: display this on LCD's
-                                Echo($"Airlock depressurizing. Please Wait.");
-                            }
-                        }
-
-                        break;
-
-                    // if airlock is not in use - this needs to be moved to a method of its own
-                    default:
-                        habSensor.DetectedEntities(airlockEntities);
-                        
-                        if (airlockEntities.Count < 1)
-                        {
-                            foreach (var door in habDoors)
-                            {
-                                // attempt to close doors
-                                if (door != null)
-                                {
-                                    door.CloseDoor();
-                                }
-                                else
-                                {
-                                    // TODO: display a noisy error on LCD's
-                                    Echo($"Null door block at hab doors index { habDoors.IndexOf(door) }. Perform maintenance check.");
-
-                                    return;
-                                }
-                            }
-                            // depressurize room
-                            foreach (var vent in habVents)
-                            {
-                                if (vent != null)
-                                {
-                                    vent.Depressurize = true;
-                                }
-                                else
-                                {
-                                    // TODO: display a noisy error on LCD's
-                                    Echo($"Null door block at airlock vents index { habVents.IndexOf(vent) }. Perform maintenance check.");
-
-                                    return;
-                                }
-                            }
-                        }
-
-                        break;
-                }
-            }
         }
+
+        //**HELPER METHODS**// 
         /// <summary>
         /// Checks airlock airvent custom data to see if user is going in or out of habitat area
         /// </summary>
         /// <returns>true if going in false if going out</returns>
-        public bool goingIn()
+        public bool GoingIn()
         {
             if (habVents[0].CustomData == "In")
             {
                 return true;
             }
-
             return false;
         }
     }
