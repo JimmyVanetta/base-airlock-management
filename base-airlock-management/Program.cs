@@ -48,15 +48,22 @@ namespace IngameScript
         public static List<IMyDoor> habDoors = new List<IMyDoor>();
         public static List<IMySensorBlock> habSensors = new List<IMySensorBlock>();
         public static List<MyDetectedEntityInfo> airlockEntities = new List<MyDetectedEntityInfo>();
+
+        public static IMyBlockGroup hangarAirlock;
+        public static List<IMyAirVent> hangarVents = new List<IMyAirVent>();
+        public static List<IMyDoor> hangarDoors = new List<IMyDoor>();
+
         public static IMyDoor insideDoor;
         public static IMyDoor outsideDoor;
         public static IMySensorBlock habSensor;
 
-
-
         public int airlockStage = 0;
         public string airlockOxyLvl;
         public bool airlockCanPressurize = false;
+
+        public string hangarOxyLvl;
+        public bool hangarCanPressurize = false;
+
 
         public Program()
         {
@@ -71,29 +78,49 @@ namespace IngameScript
             // here, which will allow your script to run itself without a 
             // timer block.a
 
-            // fetch blocks - recompile to account for new blocks
+            // fetch block groups - recompile to account for new blocks
             habAirlock = GridTerminalSystem.GetBlockGroupWithName("Hab Airlock");
+            hangarAirlock = GridTerminalSystem.GetBlockGroupWithName("Hangar Airlock");
 
-            // hab airlock vents, doors and sensors
+            // hab airlock doors, sensors and vents
             if (habAirlock != null)
             {
                 habAirlock.GetBlocksOfType(habVents);
-
                 habAirlock.GetBlocksOfType(habDoors);
-
                 habAirlock.GetBlocksOfType(habSensors);
 
-                insideDoor = habDoors.First(d => d.CustomName.Contains("Inside"));
-                outsideDoor = habDoors.First(d => d.CustomName.Contains("Outside"));
-                habSensor = habSensors.First(s => s.CustomName.Contains("Airlock"));
+                if (habDoors.Count > 0)
+                {
+                    insideDoor = habDoors.First(d => d.CustomName.Contains("Inside"));
+                    outsideDoor = habDoors.First(d => d.CustomName.Contains("Outside"));
+                }
+                else
+                {
+                    Echo("null habitat airlock door list");
+                }
+
+                if (habSensors.Count > 0)
+                {
+                    habSensor = habSensors.First(s => s.CustomName.Contains("Airlock"));
+                }
             }
             else
             {
                 Echo("null habitat airlock block group");
             }
 
-            // update every 100 ticks
-            Runtime.UpdateFrequency = UpdateFrequency.Update100;
+            // hangar doors and vents
+            if (hangarAirlock != null)
+            {
+                hangarAirlock.GetBlocksOfType(hangarDoors);
+                hangarAirlock.GetBlocksOfType(hangarVents);
+            } else
+            {
+                Echo("null hangar airlock block group");
+            }
+
+            // update every 10 ticks
+            Runtime.UpdateFrequency = UpdateFrequency.Update10;
         }
 
         public void Save()
